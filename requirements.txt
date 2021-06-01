@@ -1,0 +1,27 @@
+# Install progress bar
+tqdm
+
+# Install pytest
+pytest
+
+# Install sympy for symbolic expressions
+sympy
+
+# Install matplotlib for plotting of scripts
+matplotlib
+
+# Install black
+black
+
+# Install sphinx for docs
+sphinx
+sphinx_rtd_theme
+
+# Install numpy
+numpy
+
+# Install PySCF
+pyscf
+
+# Install the Gauss-integrator
+git+ssh://git@github.com/Schoyen/gauss-integrator.git
