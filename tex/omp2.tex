@@ -1,0 +1,84 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{braket}
+\usepackage{dsfont}
+
+%----------------------------------------------------------------------------------------
+%       ACKNOWLEDGEMENTS PAGE DESIGN
+%----------------------------------------------------------------------------------------
+
+\newenvironment{acknowledgements}
+{
+  \thispagestyle{empty}
+  \begin{center}
+    {\huge{\textbf{Acknowledgements}} \par}
+  \end{center}
+}
+{
+  \vfil\vfil\vfil\null
+  \thispagestyle{empty}
+  }
+
+\author{Håkon Emil Kristiansen}
+\title{Optimized MP2}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{The OMP2 method}
+The starting point of the OMP2 method is the NOCCD/OCCD Lagrangian 
+\begin{equation}
+\mathcal{H} = \braket{\Phi|(1+\hat{\Lambda}_2)e^{-\hat{T}_2}e^{-\hat{\kappa}}\hat{H}e^{\hat{\kappa}}e^{\hat{T_2}}|\Phi}
+\end{equation}
+where $(\hat{\Lambda}_2,\hat{T}_2)$ are cluster de-excitation and excitation operators and $\kappa$ is an orbital rotation operator defined by
+\begin{equation}
+\hat{\kappa} = \sum_{ai} \kappa^a_i a_a^\dagger a_i + \kappa^i_a a_i^\dagger a_a.
+\end{equation}
+
+Retaining only those terms giving up to second-order contributions to the Lagrangian defined the OMP2 Lagrangian
+\begin{equation}
+\mathcal{H}^{OMP2} = \braket{\Phi|\hat{H}|\Phi} + \braket{\Phi|\hat{\Lambda}_2\hat{H}|\Phi} + \braket{\Phi|[\hat{H},\hat{T}_2]|\Phi} + \braket{\Phi|\hat{\Lambda}_2[\hat{f}, \hat{T}_2 ]|\Phi}
+\end{equation}
+
+\section{OMP2 expressions}
+We will find that the $\lambda$-amplitudes can be written in terms of the $\tau$-amplitudes and that $\kappa^i_a = -(\kappa^a_i)^*$.
+\subsection{General/Unrestricted expressions}
+In general we can write the one- and two-body density matrices as 
+\begin{align}
+\gamma_p^q &= (\gamma_{ref})_p^q+(\gamma_{corr})_p^q \\
+\Gamma_{pr}^{qs} &= (\gamma_{ref})_{pr}^{qs}+(\gamma_{corr})_{pr}^{qs}. 
+\end{align}
+The reference terms are given by 
+\begin{align}
+(\gamma_{ref})_p^q &= \delta^q_j \delta^j_p \\
+(\gamma_{ref})_{pr}^{qs} &= P(qs)P(pr) (\gamma_{corr})_p^q \delta^s_j \delta^j_r + P(qs)\delta^q_j\delta^j_p\delta^s_k\delta^k_r.
+\end{align}
+
+The non-zero elements of the one-body density matrix are given by 
+\begin{align}
+\gamma_i^j &= \delta^i_j - \frac{1}{2} \lambda^{jk}_{ab} \tau^{ab}_{ik} \\
+\gamma_a^b &= \lambda^{ij}_{ac}\tau^{bc}_{ij}
+\end{align}
+and the non-zero elements of the two-body density are given by 
+\begin{align}
+\Gamma^{kl}_{ij} &= P(kl)P(ij) (\gamma_{corr})_i^k \delta^l_m \delta^m_j + P(kl)\delta^k_m\delta^m_i\delta^l_n\delta^n_j \\
+\Gamma^{ab}_{ij} &= \tau^{ab}_{ij} \\
+\Gamma^{ij}_{ab} &= \lambda^{ij}_{ab} \\
+\Gamma^{jb}_{ia} &= \gamma^b_a \delta^j_k\delta^k_i \\
+\Gamma^{bj}_{ia} &= -\gamma^b_a \delta^j_k\delta^k_i \\
+\Gamma^{jb}_{ai} &= -\gamma^b_a \delta^j_k\delta^k_i \\
+\Gamma^{bj}_{ai} &= \gamma^b_a \delta^j_k\delta^k_i. 
+\end{align}
+
+The equations for amplitudes and orbital rotations are given by 
+\begin{align}
+\frac{\partial \mathcal{H}^{OMP2}}{\partial \lambda^{ij}_{ab}} &= u^{ab}_{ij} - P(ij)f^k_j \tau^{ab}_{ik} + P(ab)f^a_c \tau^{cb}_{ij} \\
+\frac{\partial \mathcal{H}^{OMP2}}{\partial \kappa^i_a} &= h^b_i \gamma^a_b - h^a_j \gamma^j_i + \frac{1}{2} \left( u^{pq}_{ir}\Gamma^{ar}_{pq}-u^{aq}_{rs}\Gamma^{rs}_{iq} \right),
+\end{align}
+where it is understood that $h^p_q, u^{pq}_{rs}$ are transformed/rotated matrix elements.
+
+\end{document}
