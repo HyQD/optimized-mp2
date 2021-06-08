@@ -81,4 +81,33 @@ The equations for amplitudes and orbital rotations are given by
 \end{align}
 where it is understood that $h^p_q, u^{pq}_{rs}$ are transformed/rotated matrix elements.
 
+\subsection{Restricted/Closed-shell expressions}
+We now assume closed-shell systems where each orbital is doubly occupied. Then the expression for the fock matrix is given by
+\begin{equation}
+f^p_q = h^p_q + 2u^{pj}_{qj}-u^{pq}_{jq}.
+\end{equation}
+The equations for amplitudes and orbital rotations are given by (using the biorthogonal paramterization of $\hat{\Lambda}, \hat{T}$ in Helgaker et. al) 
+\begin{align}
+\frac{\partial \mathcal{H}^{OMP2}}{\partial \lambda^{ij}_{ab}} &= u^{ab}_{ij} + P^{ab}_{ij} \left( f^a_c \tau^{cb}_{ij} - f^k_i \tau^{ab}_{kj} \right),  \\
+\frac{\partial \mathcal{H}^{OMP2}}{\partial \kappa^i_a} &= h^b_i \gamma^a_b - h^a_j \gamma^j_i +  u^{pq}_{ir}\Gamma^{ar}_{pq}-u^{aq}_{rs}\Gamma^{rs}_{iq}.
+\end{align}
+One show that, 
+\begin{equation}
+\lambda^{ij}_{ab} = 2(2\tau^{ij}_{ab}-\tau^{ji}_{ab})^*.
+\end{equation}
+
+The expressions for the one- and two-body density matrices are given by 
+\begin{align}
+\gamma_i^j = 2\delta^j_i - \lambda^{kj}_{ab}\tau^{ab}_{ki} \\
+\gamma^b_a = \lambda^{ij}_{ac} \tau^{bc}_{ij}
+\end{align}
+and 
+\begin{align}
+\Gamma^{kl}_{ij} &= 4\delta^k_i\delta^l_j - 2 \delta^l_i\delta^k_j + \hat{P}^{kl}_{ij} \left(-2\delta^k_i(\gamma_{corr})^l_j + \delta^k_j(\gamma_{corr})^l_i \right), \\
+\Gamma^{ab}_{ij} &= 2(2\tau^{ab}_{ij}-\tau^{ab}_{ji}), \\
+\Gamma^{ij}_{ab} &= \lambda^{ij}_{ab} = 2(2\tau^{ij}_{ab}-\tau^{ji}_{ab})^* = (\Gamma^{ab}_{ij})^*, \\
+\Gamma^{jb}_{ia} &= 2\delta^j_i\gamma^b_a = \Gamma^{bj}_{ai}, \\
+\Gamma^{bj}_{ia} &= -\delta^j_i \gamma^b_a = \Gamma^{jb}_{ai}.
+\end{align}
+
 \end{document}
