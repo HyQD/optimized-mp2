@@ -22,6 +22,8 @@ from optimized_mp2.romp2.p_space_equations import compute_R_tilde_ai
 
 from opt_einsum import contract
 
+import time
+
 
 class ROMP2:
     """Orbital-optimized second-order Møller-Plesset perturbation theory (OMP2)
@@ -136,9 +138,22 @@ class ROMP2:
         rho_qp = self.compute_one_body_density_matrix()
         rho_qspr = self.compute_two_body_density_matrix()
 
+        u = self.u
+        o, v = self.o, self.v
+
+        e_tb = contract("klij, ijkl->", rho_qspr[o, o, o, o], u[o, o, o, o])
+        e_tb += contract("abij, ijab->", rho_qspr[v, v, o, o], u[o, o, v, v])
+        e_tb += contract("ijab, abij->", rho_qspr[o, o, v, v], u[v, v, o, o])
+
+        e_tb += contract("iajb, jbia->", rho_qspr[o, v, o, v], u[o, v, o, v])
+        e_tb += contract("aibj, bjai->", rho_qspr[v, o, v, o], u[v, o, v, o])
+
+        e_tb += contract("aijb, jbai->", rho_qspr[v, o, o, v], u[o, v, v, o])
+        e_tb += contract("iabj, bjia->", rho_qspr[o, v, v, o], u[v, o, o, v])
+
         return (
-            contract("pq,qp->", self.h, rho_qp, optimize=True)
-            + 0.5 * contract("pqrs,rspq->", self.u, rho_qspr, optimize=True)
+            contract("pq,qp->", self.h, rho_qp)
+            + 0.5 * e_tb
             + self.system.nuclear_repulsion_energy
         )
 
@@ -216,8 +231,6 @@ class ROMP2:
         """
         np = self.np
 
-        e_old = self.compute_energy()
-
         for i in range(max_iterations):
 
             self.f = self.system.construct_fock_matrix(self.h, self.u)
@@ -225,29 +238,36 @@ class ROMP2:
             self.d_t_1 = construct_d_t_1_matrix(self.f, self.o, self.v, np)
             self.d_t_2 = construct_d_t_2_matrix(self.f, self.o, self.v, np)
 
+            tic = time.time()
             rhs_t2 = compute_t_2_amplitudes(
                 self.f, self.u, self.t_2, self.o, self.v, np
             )
+            toc = time.time()
+            print(f"Compute t2: {toc-tic}")
+
             rhs_l2 = compute_l_2_amplitudes(
                 self.f, self.u, rhs_t2, self.l_2, self.o, self.v, np
             )
 
-            rhs_tt = 2 * rhs_t2 - rhs_t2.transpose(0, 1, 3, 2)
-            # print(np.allclose(rhs_l2, 2 * rhs_tt.transpose(2, 3, 0, 1)))
-
             self.t_2 += rhs_t2 / self.d_t_2
             self.l_2 += rhs_l2 / self.d_t_2.transpose(2, 3, 0, 1)
 
+            tic = time.time()
             rho_qp = self.compute_one_body_density_matrix()
             rho_qspr = self.compute_two_body_density_matrix()
+            toc = time.time()
+            print(f"Compute density matrices: {toc-tic}")
 
             ############################################################
             # This part of the code is common to most (if not all)
             # orbital-optimized methods.
             v, o = self.v, self.o
+            tic = time.time()
             w_ai = compute_R_tilde_ai(
                 self.h, self.u, rho_qp, rho_qspr, o, v, np
             )
+            toc = time.time()
+            print(f"Compute kappa derivatives: {toc-tic}")
             residual_w_ai = np.linalg.norm(w_ai)
 
             self.kappa[self.v, self.o] -= 0.5 * w_ai / self.d_t_1
@@ -255,6 +275,7 @@ class ROMP2:
             C = expm(self.kappa - self.kappa.T)
             Ctilde = C.T
 
+            tic = time.time()
             self.h = self.system.transform_one_body_elements(
                 self.system.h, C, Ctilde
             )
@@ -262,18 +283,22 @@ class ROMP2:
             self.u = self.system.transform_two_body_elements(
                 self.system.u, C, Ctilde
             )
+            toc = time.time()
+            print(f"Transform integrals: {toc-tic}")
             ############################################################
-            energy = self.compute_energy()
 
             if self.verbose:
                 print(f"\nIteration: {i}")
                 print(f"Residual norms: |w_ai| = {residual_w_ai}")
-                print(f"Energy: {energy}")
 
             if np.abs(residual_w_ai) < tol:
                 break
 
-            e_old = energy
+        tic = time.time()
+        energy = self.compute_energy()
+        toc = time.time()
+        print(f"Compute energy: {toc-tic}")
+        print(f"Energy: {energy}")
 
         self.C = C
         self.C_tilde = C.T.conj()
@@ -291,3 +316,9 @@ class ROMP2:
                 f"Final {self.__class__.__name__} energy: "
                 + f"{self.compute_energy()}"
             )
+
+    def compute_one_body_expectation_value(self, mat):
+
+        rho_qp = self.compute_one_body_density_matrix()
+
+        return self.np.trace(self.np.dot(rho_qp, self.C_tilde @ mat @ self.C))

@@ -52,13 +52,13 @@ def add_rho_klij(t, l, o, v, np, out):
 
     I0 = contract("mkab,abmi->ki", l, t)
 
-    rho -= 2 * contract("ik,lj->klij", delta, I0)
+    rho -= 2 * contract("ki,lj->klij", delta, I0)
 
-    rho += contract("il,kj->klij", delta, I0)
+    rho += contract("li,kj->klij", delta, I0)
 
-    rho += contract("jk,li->klij", delta, I0)
+    rho += contract("kj,li->klij", delta, I0)
 
-    rho -= 2 * contract("jl,ki->klij", delta, I0)
+    rho -= 2 * contract("lj,ki->klij", delta, I0)
 
     out[o, o, o, o] += rho
 
