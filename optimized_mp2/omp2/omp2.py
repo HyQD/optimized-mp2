@@ -9,6 +9,7 @@ from optimized_mp2.omp2_helper import (
 from optimized_mp2.omp2.rhs_t import (
     compute_t_2_amplitudes,
     compute_l_2_amplitudes,
+    compute_t_2_amplitudes_MO_driven,
 )
 
 # from coupled_cluster.mix import DIIS
@@ -20,9 +21,14 @@ from optimized_mp2.omp2.density_matrices import (
 
 from optimized_mp2.omp2_helper import OACCVector, AmplitudeContainer
 
-from optimized_mp2.omp2.p_space_equations import compute_R_tilde_ai
+from optimized_mp2.omp2.p_space_equations import (
+    compute_R_tilde_ai,
+    compute_R_tilde_ai_MO_driven,
+)
 
 from opt_einsum import contract
+
+import time
 
 
 class OMP2:
@@ -41,25 +47,29 @@ class OMP2:
 
     """
 
-    def __init__(self, system, verbose=False, **kwargs):
+    def __init__(self, system, verbose=False, MO_driven=False, **kwargs):
 
         self.np = system.np
         self.system = system
         self.verbose = verbose
+        self.MO_driven = MO_driven
 
         self.n, self.m, self.l = system.n, system.m, system.l
+        self.o, self.v = self.system.o, self.system.v
 
         self.h = self.system.h
-        self.u = self.system.u
-        self.f = self.system.construct_fock_matrix(self.h, self.u)
+        if self.MO_driven == False:
+            self.u = self.system.u
 
-        self.o, self.v = self.system.o, self.system.v
+        self.f = self.system.construct_fock_matrix(self.system.h, self.system.u)
+
+        o, v = self.o, self.v
 
         np = self.np
         n, m, l = self.n, self.m, self.l
 
-        self.rhs_t_2 = np.zeros((m, m, n, n), dtype=self.u.dtype)
-        self.rhs_l_2 = np.zeros((n, n, m, m), dtype=self.u.dtype)
+        self.rhs_t_2 = np.zeros((m, m, n, n), dtype=self.system.u.dtype)
+        self.rhs_l_2 = np.zeros((n, n, m, m), dtype=self.system.u.dtype)
 
         self.t_2 = np.zeros_like(self.rhs_t_2)
         self.l_2 = np.zeros_like(self.rhs_l_2)
@@ -80,10 +90,10 @@ class OMP2:
         np = self.np
         o, v = self.o, self.v
 
-        np.copyto(self.rhs_t_2, self.u[v, v, o, o])
+        np.copyto(self.rhs_t_2, self.system.u[v, v, o, o])
         np.divide(self.rhs_t_2, self.d_t_2, out=self.t_2)
 
-        np.copyto(self.rhs_l_2, self.u[o, o, v, v])
+        np.copyto(self.rhs_l_2, self.system.u[o, o, v, v])
         np.divide(self.rhs_l_2, self.d_l_2, out=self.l_2)
 
     def get_amplitudes(self, get_t_0=False):
@@ -110,8 +120,8 @@ class OMP2:
                 l=self._get_l_copy(),
                 np=self.np,
             )
-        else:
 
+        else:
             amps = AmplitudeContainer(
                 t=self._get_t_copy(), l=self._get_l_copy(), np=self.np
             )
@@ -132,12 +142,92 @@ class OMP2:
 
         rho_qp = self.compute_one_body_density_matrix()
         rho_qspr = self.compute_two_body_density_matrix()
+        o, v = self.o, self.v
+        if self.MO_driven:
 
-        return (
-            contract("pq,qp->", self.h, rho_qp)
-            + 0.25 * contract("pqrs,rspq->", self.u, rho_qspr)
-            + self.system.nuclear_repulsion_energy
-        )
+            energy = contract("pq,qp->", self.h, rho_qp)
+
+            u_oooo = contract(
+                "ip,jq,pqrs,rk,sl->ijkl",
+                self.C_tilde[o, :],
+                self.C_tilde[o, :],
+                self.system.u,
+                self.C[:, o],
+                self.C[:, o],
+            )
+
+            u_oovv = contract(
+                "ip,jq,pqrs,ra,sb->ijab",
+                self.C_tilde[o, :],
+                self.C_tilde[o, :],
+                self.system.u,
+                self.C[:, v],
+                self.C[:, v],
+            )
+
+            u_vvoo = contract(
+                "ap,bq,pqrs,ri,sj->abij",
+                self.C_tilde[v, :],
+                self.C_tilde[v, :],
+                self.system.u,
+                self.C[:, o],
+                self.C[:, o],
+            )
+
+            u_vovo = contract(
+                "ap,iq,pqrs,rb,sj->aibj",
+                self.C_tilde[v, :],
+                self.C_tilde[o, :],
+                self.system.u,
+                self.C[:, v],
+                self.C[:, o],
+            )
+
+            u_ovvo = contract(
+                "ip,aq,pqrs,rb,sj->iabj",
+                self.C_tilde[o, :],
+                self.C_tilde[v, :],
+                self.system.u,
+                self.C[:, v],
+                self.C[:, o],
+            )
+
+            u_ovov = contract(
+                "ip,aq,pqrs,rj,sb->iajb",
+                self.C_tilde[o, :],
+                self.C_tilde[v, :],
+                self.system.u,
+                self.C[:, o],
+                self.C[:, v],
+            )
+
+            u_voov = contract(
+                "ap,iq,pqrs,rj,sb->aijb",
+                self.C_tilde[v, :],
+                self.C_tilde[o, :],
+                self.system.u,
+                self.C[:, o],
+                self.C[:, v],
+            )
+
+            energy_tb = contract("ijkl, klij->", u_oooo, rho_qspr[o, o, o, o])
+            energy_tb += contract("ijab, abij->", u_oovv, rho_qspr[v, v, o, o])
+            energy_tb += contract("abij, ijab->", u_vvoo, rho_qspr[o, o, v, v])
+            energy_tb += contract("aibj, bjai->", u_vovo, rho_qspr[v, o, v, o])
+            energy_tb += contract("iabj, bjia->", u_ovvo, rho_qspr[v, o, o, v])
+            energy_tb += contract("iajb, jbia->", u_ovov, rho_qspr[o, v, o, v])
+            energy_tb += contract("aijb, jbai->", u_voov, rho_qspr[o, v, v, o])
+
+            energy += 0.25 * energy_tb + self.system.nuclear_repulsion_energy
+
+            return energy
+
+        else:
+            return (
+                contract("pq,qp->", self.h, rho_qp)
+                + 0.25 * contract("pqrs,rspq->", self.u, rho_qspr)
+                + self.system.nuclear_repulsion_energy
+            )
 
     def compute_t_amplitudes(self):
         np = self.np
@@ -213,61 +303,103 @@ class OMP2:
         """
         np = self.np
 
-        e_old = self.compute_energy()
+        self.C = expm(self.kappa - self.kappa.T)
+        self.C_tilde = self.C.T
+
+        v, o = self.v, self.o
 
         for i in range(max_iterations):
 
-            self.f = self.system.construct_fock_matrix(self.h, self.u)
+            tic = time.time()
+            self.f = contract(
+                "pa,ab,bq->pq", self.C_tilde, self.system.h, self.C
+            )
+            self.f += contract(
+                "pa,jb,abgd,gq,dj",
+                self.C_tilde,
+                self.C_tilde[o, :],
+                self.system.u,
+                self.C,
+                self.C[:, o],
+            )
+            toc = time.time()
+            print(f"Fock matrix: {toc-tic}")
 
             self.d_t_1 = construct_d_t_1_matrix(self.f, self.o, self.v, np)
             self.d_t_2 = construct_d_t_2_matrix(self.f, self.o, self.v, np)
 
-            self.t_2 += (
-                compute_t_2_amplitudes(
-                    self.f, self.u, self.t_2, self.o, self.v, np
+            if self.MO_driven:
+                self.t_2 += (
+                    compute_t_2_amplitudes_MO_driven(
+                        self.f,
+                        self.system.u,
+                        self.t_2,
+                        self.C,
+                        self.o,
+                        self.v,
+                        np,
+                    )
+                    / self.d_t_2
                 )
-                / self.d_t_2
-            )
 
-            rho_qp = self.compute_one_body_density_matrix()
-            rho_qspr = self.compute_two_body_density_matrix()
+            else:
+                self.t_2 += (
+                    compute_t_2_amplitudes(
+                        self.f, self.u, self.t_2, self.o, self.v, np
+                    )
+                    / self.d_t_2
+                )
+
+            if self.MO_driven == False:
+                rho_qp = self.compute_one_body_density_matrix()
+                rho_qspr = self.compute_two_body_density_matrix()
 
             ############################################################
             # This part of the code is common to most (if not all)
             # orbital-optimized methods.
-            v, o = self.v, self.o
-            w_ai = compute_R_tilde_ai(
-                self.h, self.u, rho_qp, rho_qspr, o, v, np
-            )
+            tic_1 = time.time()
+            if self.MO_driven:
+                w_ai = compute_R_tilde_ai_MO_driven(
+                    self.h, self.system.u, self.t_2, self.C, o, v, np
+                )
+            else:
+                w_ai = compute_R_tilde_ai(
+                    self.h, self.u, rho_qp, rho_qspr, o, v, np
+                )
+            toc_1 = time.time()
+            print(f"w_ai: {toc_1-tic_1}")
+
             residual_w_ai = np.linalg.norm(w_ai)
 
             self.kappa[self.v, self.o] -= w_ai / self.d_t_1
 
-            C = expm(self.kappa - self.kappa.T)
-            Ctilde = C.T
+            self.C = expm(self.kappa - self.kappa.T)
+            self.C_tilde = self.C.T
 
             self.h = self.system.transform_one_body_elements(
-                self.system.h, C, Ctilde
+                self.system.h, self.C, self.C_tilde
             )
 
-            self.u = self.system.transform_two_body_elements(
-                self.system.u, C, Ctilde
-            )
+            if self.MO_driven == False:
+                tic_2 = time.time()
+                self.u = self.system.transform_two_body_elements(
+                    self.system.u, self.C, self.C_tilde
+                )
+                toc_2 = time.time()
+                print(f"u_transform: {toc_2-tic_2}")
             ############################################################
-            energy = self.compute_energy()
 
             if self.verbose:
                 print(f"\nIteration: {i}")
                 print(f"Residual norms: |w_ai| = {residual_w_ai}")
-                print(f"Energy: {energy}")
 
             if np.abs(residual_w_ai) < tol:
                 break
 
-            e_old = energy
-
-        self.C = C
-        self.C_tilde = C.T.conj()
+        energy = self.compute_energy()
+        print(f"Energy: {energy}")
+        # self.C = C
+        # self.C_tilde = C.T.conj()
 
         if change_system_basis:
             if self.verbose:
@@ -282,3 +414,9 @@ class OMP2:
                 f"Final {self.__class__.__name__} energy: "
                 + f"{self.compute_energy()}"
             )
+
+    def compute_one_body_expectation_value(self, mat, make_hermitian=True):
+
+        rho_qp = self.compute_one_body_density_matrix()
+
+        return self.np.trace(self.np.dot(rho_qp, self.C_tilde @ mat @ self.C))

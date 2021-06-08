@@ -44,7 +44,7 @@ def compute_two_body_density_matrix(t, l, o, v, np, out=None):
     tpdm[o, o, o, o] += term
 
     # Complexity: O(n^2 m^3)
-    W_ba = 0.5 * np.tensordot(t, t.T.conj(), axes=((1, 2, 3), (3, 0, 1)))
+    W_ba = (1 / 2) * contract("ijac,bcij -> ba", t.T.conj(), t, optimize=True)
     term_jbia = contract("ji, ba -> jbia", delta, W_ba)
 
     # rho^{jb}_{ia}
