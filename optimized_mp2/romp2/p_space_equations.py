@@ -60,58 +60,58 @@ def compute_R_ia(h, u, rho_qp, rho_qspr, o, v, np):
 
 def compute_R_tilde_ai(h, u, rho_qp, rho_qspr, o, v, np):
 
-    tic = time.time()
+    #tic = time.time()
     R_tilde_ai = np.dot(rho_qp[v, v], h[v, o])
     R_tilde_ai -= np.dot(h[v, o], rho_qp[o, o])
-    toc = time.time()
-    print(f"One body contractions: {toc-tic}")
+    #toc = time.time()
+    #print(f"One body contractions: {toc-tic}")
 
-    tic = time.time()
+    #ic = time.time()
     R_tilde_ai += contract(
         "abkl, klib->ai", rho_qspr[v, v, o, o], u[o, o, o, v]
     )
     R_tilde_ai += 2 * contract("ab, bkik->ai", rho_qp[v, v], u[v, o, o, o])
     R_tilde_ai -= contract("ab, kbik->ai", rho_qp[v, v], u[o, v, o, o])
-    toc = time.time()
-    print(f"u_ooov contractions: {toc-tic}")
+    #toc = time.time()
+    #print(f"u_ooov contractions: {toc-tic}")
 
-    tic = time.time()
+    #tic = time.time()
     R_tilde_ai -= contract(
         "bcij, ajbc->ai", rho_qspr[v, v, o, o], u[v, o, v, v]
     )
-    toc = time.time()
-    print(f"u_vvvo contraction 1: {toc-tic}")
+    #toc = time.time()
+    #print(f"u_vvvo contraction 1: {toc-tic}")
 
-    tic = time.time()
+    #tic = time.time()
     R_tilde_ai += contract("bc, acbi->ai", rho_qp[v, v], u[v, v, v, o])
     R_tilde_ai -= 2 * contract("bc, acib->ai", rho_qp[v, v], u[v, v, o, v])
-    toc = time.time()
-    print(f"u_vvvo contractions 2: {toc-tic}")
+    #toc = time.time()
+    #print(f"u_vvvo contractions 2: {toc-tic}")
 
-    tic = time.time()
+    #tic = time.time()
     R_tilde_ai -= contract(
         "klij, ajkl->ai", rho_qspr[o, o, o, o], u[v, o, o, o]
     )
-    toc = time.time()
-    print(f"gamma_oooo contraction: {toc-tic}")
+    #toc = time.time()
+    #print(f"gamma_oooo contraction: {toc-tic}")
 
     return R_tilde_ai
 
 
 def compute_R_tilde_ai_MO_driven(f, u, rho_qp, l2, t2, o, v, np):
 
-    tic = time.time()
+    #tic = time.time()
     tt = 2 * (2 * t2 - t2.transpose(0, 1, 3, 2))
-    toc = time.time()
-    print(f"Compute tt: {toc-tic}")
+    #toc = time.time()
+    #print(f"Compute tt: {toc-tic}")
 
-    tic = time.time()
+    #tic = time.time()
     R_tilde_ai = np.dot(rho_qp[v, v], f[v, o])
     R_tilde_ai -= np.dot(f[v, o], rho_qp[o, o])
-    toc = time.time()
-    print(f"One body contractions: {toc-tic}")
+    #toc = time.time()
+    #print(f"One body contractions: {toc-tic}")
 
-    tic = time.time()
+    #tic = time.time()
     R_tilde_ai += contract("abkl, klib->ai", tt, u[o, o, o, v])
 
     ########################################################################
@@ -119,21 +119,21 @@ def compute_R_tilde_ai_MO_driven(f, u, rho_qp, l2, t2, o, v, np):
     # R_tilde_ai += 2 * contract("ab, bkik->ai", rho_qp[v, v], u[v, o, o, o])
     # R_tilde_ai -= contract("ab, kbik->ai", rho_qp[v, v], u[o, v, o, o])
     ########################################################################
-    toc = time.time()
-    print(f"u_ooov contractions: {toc-tic}")
+    #toc = time.time()
+    #print(f"u_ooov contractions: {toc-tic}")
 
-    tic = time.time()
+    #tic = time.time()
     R_tilde_ai -= contract("bcij, ajbc->ai", tt, u[v, o, v, v])
-    toc = time.time()
-    print(f"u_vvvo contraction 1: {toc-tic}")
+    #toc = time.time()
+    #print(f"u_vvvo contraction 1: {toc-tic}")
 
-    tic = time.time()
+    #tic = time.time()
     R_tilde_ai += contract("acbi, bc->ai", u[v, v, v, o], rho_qp[v, v])
     R_tilde_ai -= 2 * contract("acib,bc->ai", u[v, v, o, v], rho_qp[v, v])
-    toc = time.time()
-    print(f"u_vvvo contractions 2: {toc-tic}")
+    #toc = time.time()
+    #print(f"u_vvvo contractions 2: {toc-tic}")
 
-    tic = time.time()
+    #tic = time.time()
 
     # Gamma^{kl}_{ij}*u^{aj}_{kl}
     # These terms combine with h[v,o]*rho_qp[o,o] to form f[v,o]*rho_qp[o,o]
@@ -152,7 +152,7 @@ def compute_R_tilde_ai_MO_driven(f, u, rho_qp, l2, t2, o, v, np):
     # rho_oooo -= contract("li,kj->klij", delta, gamma_ij_corr)
     # R_tilde_ai -= contract("klij, ajkl->ai", rho_oooo, u[v, o, o, o])
 
-    toc = time.time()
-    print(f"gamma_oooo contraction: {toc-tic}")
+    #toc = time.time()
+    #print(f"gamma_oooo contraction: {toc-tic}")
 
     return R_tilde_ai

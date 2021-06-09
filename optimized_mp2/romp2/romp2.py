@@ -260,12 +260,12 @@ class ROMP2:
             self.d_t_1 = construct_d_t_1_matrix(self.f, self.o, self.v, np)
             self.d_t_2 = construct_d_t_2_matrix(self.f, self.o, self.v, np)
 
-            tic = time.time()
+            #tic = time.time()
             rhs_t2 = compute_t_2_amplitudes(
                 self.f, self.u, self.t_2, self.o, self.v, np
             )
-            toc = time.time()
-            print(f"Compute t2: {toc-tic}")
+            #toc = time.time()
+            #print(f"Compute t2: {toc-tic}")
 
             rhs_l2 = compute_l_2_amplitudes(
                 self.f, self.u, rhs_t2, self.l_2, self.o, self.v, np
@@ -274,17 +274,17 @@ class ROMP2:
             self.t_2 += rhs_t2 / self.d_t_2
             self.l_2 += rhs_l2 / self.d_t_2.transpose(2, 3, 0, 1)
 
-            tic = time.time()
+            #tic = time.time()
             rho_qp = self.compute_one_body_density_matrix()
             # rho_qspr = self.compute_two_body_density_matrix()
-            toc = time.time()
-            print(f"Compute density matrices: {toc-tic}")
+            #toc = time.time()
+            #print(f"Compute density matrices: {toc-tic}")
 
             ############################################################
             # This part of the code is common to most (if not all)
             # orbital-optimized methods.
             v, o = self.v, self.o
-            tic = time.time()
+            #tic = time.time()
             # w_ai = compute_R_tilde_ai(
             #    self.h, self.u, rho_qp, rho_qspr, o, v, np
             # )
@@ -292,8 +292,8 @@ class ROMP2:
                 self.f, self.u, rho_qp, self.l_2, self.t_2, o, v, np
             )
             # print(np.allclose(w_ai_MO, w_ai))
-            toc = time.time()
-            print(f"Compute kappa derivatives: {toc-tic}")
+            #toc = time.time()
+            #print(f"Compute kappa derivatives: {toc-tic}")
             residual_w_ai = np.linalg.norm(w_ai)
 
             self.kappa[self.v, self.o] -= 0.5 * w_ai / self.d_t_1
@@ -301,7 +301,7 @@ class ROMP2:
             C = expm(self.kappa - self.kappa.T)
             Ctilde = C.T
 
-            tic = time.time()
+            #tic = time.time()
             self.h = self.system.transform_one_body_elements(
                 self.system.h, C, Ctilde
             )
@@ -309,8 +309,8 @@ class ROMP2:
             self.u = self.system.transform_two_body_elements(
                 self.system.u, C, Ctilde
             )
-            toc = time.time()
-            print(f"Transform integrals: {toc-tic}")
+            #toc = time.time()
+            #print(f"Transform integrals: {toc-tic}")
 
             # tic = time.time()
             # u_vvoo = contract('aA, bB, ABGD, Gi, Dj->abij', Ctilde[v,:], Ctilde[v,:], self.system.u, C[:,o], C[:,o])
