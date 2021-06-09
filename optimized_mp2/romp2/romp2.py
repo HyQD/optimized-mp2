@@ -18,7 +18,10 @@ from optimized_mp2.romp2.density_matrices import (
 
 from optimized_mp2.omp2_helper import OACCVector, AmplitudeContainer
 
-from optimized_mp2.romp2.p_space_equations import compute_R_tilde_ai
+from optimized_mp2.romp2.p_space_equations import (
+    compute_R_tilde_ai,
+    compute_R_tilde_ai_MO_driven,
+)
 
 from opt_einsum import contract
 
@@ -141,19 +144,37 @@ class ROMP2:
         u = self.u
         o, v = self.o, self.v
 
-        e_tb = contract("klij, ijkl->", rho_qspr[o, o, o, o], u[o, o, o, o])
-        e_tb += contract("abij, ijab->", rho_qspr[v, v, o, o], u[o, o, v, v])
-        e_tb += contract("ijab, abij->", rho_qspr[o, o, v, v], u[v, v, o, o])
+        term_klij = contract(
+            "klij, ijkl->", rho_qspr[o, o, o, o], u[o, o, o, o]
+        )
+        term_abij = contract(
+            "abij, ijab->", rho_qspr[v, v, o, o], u[o, o, v, v]
+        )
 
-        e_tb += contract("iajb, jbia->", rho_qspr[o, v, o, v], u[o, v, o, v])
-        e_tb += contract("aibj, bjai->", rho_qspr[v, o, v, o], u[v, o, v, o])
+        # e_tb += contract("ijab, abij->", rho_qspr[o, o, v, v], u[v, v, o, o])
 
-        e_tb += contract("aijb, jbai->", rho_qspr[v, o, o, v], u[o, v, v, o])
-        e_tb += contract("iabj, bjia->", rho_qspr[o, v, v, o], u[v, o, o, v])
+        term_iajb = contract(
+            "iajb, jbia->", rho_qspr[o, v, o, v], u[o, v, o, v]
+        )
+        # e_tb += contract("aibj, bjai->", rho_qspr[v, o, v, o], u[v, o, v, o])
+
+        term_aijb = contract(
+            "aijb, jbai->", rho_qspr[v, o, o, v], u[o, v, v, o]
+        )
+        # e_tb += contract("iabj, bjia->", rho_qspr[o, v, v, o], u[v, o, o, v])
 
         return (
             contract("pq,qp->", self.h, rho_qp)
-            + 0.5 * e_tb
+            + 0.5
+            * (
+                term_klij
+                + term_abij
+                + term_abij.conj()
+                + term_iajb
+                + term_iajb.conj()
+                + term_aijb
+                + term_aijb.conj()
+            )
             + self.system.nuclear_repulsion_energy
         )
 
@@ -254,7 +275,7 @@ class ROMP2:
 
             tic = time.time()
             rho_qp = self.compute_one_body_density_matrix()
-            rho_qspr = self.compute_two_body_density_matrix()
+            # rho_qspr = self.compute_two_body_density_matrix()
             toc = time.time()
             print(f"Compute density matrices: {toc-tic}")
 
@@ -263,9 +284,13 @@ class ROMP2:
             # orbital-optimized methods.
             v, o = self.v, self.o
             tic = time.time()
-            w_ai = compute_R_tilde_ai(
-                self.h, self.u, rho_qp, rho_qspr, o, v, np
+            # w_ai = compute_R_tilde_ai(
+            #    self.h, self.u, rho_qp, rho_qspr, o, v, np
+            # )
+            w_ai = compute_R_tilde_ai_MO_driven(
+                self.f, self.u, rho_qp, self.l_2, self.t_2, o, v, np
             )
+            # print(np.allclose(w_ai_MO, w_ai))
             toc = time.time()
             print(f"Compute kappa derivatives: {toc-tic}")
             residual_w_ai = np.linalg.norm(w_ai)
@@ -285,6 +310,11 @@ class ROMP2:
             )
             toc = time.time()
             print(f"Transform integrals: {toc-tic}")
+
+            # tic = time.time()
+            # u_vvoo = contract('aA, bB, ABGD, Gi, Dj->abij', Ctilde[v,:], Ctilde[v,:], self.system.u, C[:,o], C[:,o])
+            # toc = time.time()
+            # print(f"u_vvoo: {toc-tic}")
             ############################################################
 
             if self.verbose:
