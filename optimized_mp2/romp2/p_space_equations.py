@@ -18,6 +18,24 @@ def compute_eta(h, u, rho_qp, rho_qspr, o, v, np):
     return eta
 
 
+def compute_eta_MO_driven(f, u, rho_qp, l2, t2, o, v, np):
+
+    eta = np.zeros(f.shape, dtype=np.complex128)
+    A_ibaj = compute_A_ibaj(rho_qp, o, v, np=np)
+
+    R_ia = (
+        -compute_R_tilde_ai_MO_driven(f, u, rho_qp, l2, t2, o, v, np).conj().T
+    )
+
+    A_iajb = A_ibaj.transpose(0, 2, 3, 1)
+    eta_jb = -1j * np.linalg.tensorsolve(A_iajb, R_ia)
+
+    eta[o, v] += eta_jb
+    eta[v, o] -= eta_jb.conj().T
+
+    return eta
+
+
 def compute_A_ibaj(rho_qp, o, v, np):
     delta_ij = np.eye(o.stop)
     delta_ba = np.eye(v.stop - o.stop)

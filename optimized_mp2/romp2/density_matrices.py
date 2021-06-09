@@ -46,9 +46,11 @@ def add_rho_klij(t, l, o, v, np, out):
     delta = np.eye(o.stop)
 
     rho = np.zeros((no, no, no, no), dtype=t.dtype)
+
     rho += 4 * contract("ik,jl->klij", delta, delta)
     rho -= 2 * contract("il,jk->klij", delta, delta)
-    # rho += contract("klab,abij->klij", l, t)
+
+    # rho += 2 * contract("ik,jl->klij", delta, delta)
 
     I0 = contract("mkab,abmi->ki", l, t)
 

@@ -9,7 +9,10 @@ from optimized_mp2.romp2.density_matrices import (
     compute_two_body_density_matrix,
 )
 
-from optimized_mp2.romp2.p_space_equations import compute_eta
+from optimized_mp2.romp2.p_space_equations import (
+    compute_eta,
+    compute_eta_MO_driven,
+)
 
 from optimized_mp2.omp2_helper import OACCVector
 from optimized_mp2.omp2_helper import AmplitudeContainer
@@ -118,10 +121,40 @@ class TDROMP2:
         rho_qp = self.compute_one_body_density_matrix(current_time, y)
         rho_qspr = self.compute_two_body_density_matrix(current_time, y)
 
+        u = self.u_prime
+        o, v = self.o, self.v
+
+        term_klij = contract(
+            "klij, ijkl->", rho_qspr[o, o, o, o], u[o, o, o, o]
+        )
+        term_abij = contract(
+            "abij, ijab->", rho_qspr[v, v, o, o], u[o, o, v, v]
+        )
+
+        # e_tb += contract("ijab, abij->", rho_qspr[o, o, v, v], u[v, v, o, o])
+
+        term_iajb = contract(
+            "iajb, jbia->", rho_qspr[o, v, o, v], u[o, v, o, v]
+        )
+        # e_tb += contract("aibj, bjai->", rho_qspr[v, o, v, o], u[v, o, v, o])
+
+        term_aijb = contract(
+            "aijb, jbai->", rho_qspr[v, o, o, v], u[o, v, v, o]
+        )
+        # e_tb += contract("iabj, bjia->", rho_qspr[o, v, v, o], u[v, o, o, v])
+
         return (
-            contract("pq,qp->", self.h_prime, rho_qp, optimize=True)
+            contract("pq,qp->", self.h_prime, rho_qp)
             + 0.5
-            * contract("pqrs,rspq->", self.u_prime, rho_qspr, optimize=True)
+            * (
+                term_klij
+                + term_abij
+                + term_abij.conj()
+                + term_iajb
+                + term_iajb.conj()
+                + term_aijb
+                + term_aijb.conj()
+            )
             + self.system.nuclear_repulsion_energy
         )
 
@@ -171,6 +204,7 @@ class TDROMP2:
         return compute_orbital_adaptive_overlap(t2a, l2a, t2b, l2b, np=self.np)
 
     def compute_p_space_equations(self):
+
         eta = compute_eta(
             self.h_prime,
             self.u_prime,
@@ -179,6 +213,20 @@ class TDROMP2:
             self.o_prime,
             self.v_prime,
             np=self.np,
+        )
+
+        return eta
+
+    def compute_p_space_equations_MO_driven(self, l2, t2):
+        eta = compute_eta_MO_driven(
+            self.f_prime,
+            self.u_prime,
+            self.rho_qp,
+            l2,
+            t2,
+            self.o,
+            self.v,
+            self.np,
         )
 
         return eta
@@ -252,10 +300,10 @@ class TDROMP2:
 
         # Compute density matrices
         self.rho_qp = self.one_body_density_matrix(t_old, l_old)
-        self.rho_qspr = self.two_body_density_matrix(t_old, l_old)
+        # self.rho_qspr = self.two_body_density_matrix(t_old, l_old)
 
         # Solve P-space equations for eta
-        eta = self.compute_p_space_equations()
+        eta = self.compute_p_space_equations_MO_driven(*l_old, *t_old)
 
         C_new = np.dot(C, eta)
         C_tilde_new = -np.dot(eta, C_tilde)

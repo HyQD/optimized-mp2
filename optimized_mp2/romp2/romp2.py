@@ -140,6 +140,7 @@ class ROMP2:
 
         rho_qp = self.compute_one_body_density_matrix()
         rho_qspr = self.compute_two_body_density_matrix()
+        toc = time.time()
 
         u = self.u
         o, v = self.o, self.v
