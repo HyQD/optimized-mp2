@@ -1,5 +1,6 @@
 import os
 import pytest
+import tqdm
 
 import numpy as np
 from quantum_systems import construct_pyscf_system_rhf
@@ -31,14 +32,22 @@ class LaserPulse:
         )
 
 
-omega = 2.873_564_3
-E = 1
+omega = 0.057
+E = 0.01
 laser_duration = 5
 
-system = construct_pyscf_system_rhf(molecule="he 0.0 0.0 0.0", basis="cc-pvdz")
+system = construct_pyscf_system_rhf(
+    molecule="li 0.0 0.0 0.0; h 0.0 0.0 3.08", basis="cc-pvdz"
+)
 
-omp2 = OMP2(system, verbose=True)
-omp2.compute_ground_state()
+omp2 = OMP2(system, verbose=False)
+omp2.compute_ground_state(
+    max_iterations=100,
+    num_vecs=10,
+    tol=1e-10,
+    termination_tol=1e-10,
+    tol_factor=1e-1,
+)
 print(f"EOMP2: {omp2.compute_energy().real}")
 
 tdomp2 = TDOMP2(system)
@@ -55,7 +64,7 @@ system.set_time_evolution_operator(
     )
 )
 
-dt = 1e-2
+dt = 1e-1
 T = 10
 num_steps = int(T // dt) + 1
 t_stop_laser = int(laser_duration // dt) + 1
@@ -70,7 +79,10 @@ dip_z[0] = tdomp2.compute_one_body_expectation_value(
     r.t, r.y, system.dipole_moment[2]
 )
 
-for i, _t in enumerate(time_points[:-1]):
+print(dip_z[0])
+
+
+for i in tqdm.tqdm(range(num_steps - 1)):
 
     r.integrate(r.t + dt)
 

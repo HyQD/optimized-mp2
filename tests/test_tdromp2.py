@@ -10,6 +10,8 @@ from optimized_mp2.romp2 import ROMP2, TDROMP2
 from gauss_integrator import GaussIntegrator
 from scipy.integrate import complex_ode
 
+import tqdm
+
 
 class LaserPulse:
     def __init__(self, t0=0, td=5, omega=0.1, E=0.03):
@@ -30,19 +32,25 @@ class LaserPulse:
         )
 
 
-omega = 2.873_564_3
-E = 1
+omega = 0.057
+E = 0.01
 laser_duration = 5
 
 system = construct_pyscf_system_rhf(
-    molecule="he 0.0 0.0 0.0",
+    molecule="li 0.0 0.0 0.0; h 0.0 0.0 3.08",
     basis="cc-pvdz",
     add_spin=False,
     anti_symmetrize=False,
 )
 
-omp2 = ROMP2(system, verbose=True)
-omp2.compute_ground_state()
+omp2 = ROMP2(system, verbose=False)
+omp2.compute_ground_state(
+    max_iterations=100,
+    num_vecs=10,
+    tol=1e-10,
+    termination_tol=1e-10,
+    tol_factor=1e-1,
+)
 print(f"EROMP2: {omp2.compute_energy().real}")
 
 tdomp2 = TDROMP2(system)
@@ -59,7 +67,7 @@ system.set_time_evolution_operator(
     )
 )
 
-dt = 1e-2
+dt = 1e-1
 T = 10
 num_steps = int(T // dt) + 1
 t_stop_laser = int(laser_duration // dt) + 1
@@ -73,8 +81,10 @@ td_energies[0] = tdomp2.compute_energy(r.t, r.y)
 dip_z[0] = tdomp2.compute_one_body_expectation_value(
     r.t, r.y, system.dipole_moment[2]
 )
+print(dip_z[0].real)
 
-for i, _t in enumerate(time_points[:-1]):
+
+for i in tqdm.tqdm(range(num_steps - 1)):
 
     r.integrate(r.t + dt)
 
@@ -83,8 +93,11 @@ for i, _t in enumerate(time_points[:-1]):
         r.t, r.y, system.dipole_moment[2]
     )
 
-td_energies_omp2 = np.load("tdomp2_energy.npy")
-dip_z_omp2 = np.load("tdomp2_dip_z.npy")
+td_energies_omp2 = np.load("dat/tdomp2_energy.npy")
+dip_z_omp2 = np.load("dat/tdomp2_dip_z.npy")
+
+# np.save("tdromp2_energy", td_energies)
+# np.save("tdromp2_dip_z", dip_z)
 
 from matplotlib import pyplot as plt
 
