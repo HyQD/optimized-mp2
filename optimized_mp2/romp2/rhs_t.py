@@ -13,6 +13,25 @@ def compute_t_2_amplitudes(f, u, t, o, v, np, out=None):
     return rhs_T2
 
 
+def compute_t_2_amplitudes_v2(f, u, t, C, C_tilde, o, v, np, out=None):
+
+    rhs_T2 = contract(
+        "aA, bB, ABGD, Gi, Dj->abij",
+        C_tilde[v, :],
+        C_tilde[v, :],
+        u,
+        C[:, o],
+        C[:, o],
+    )
+
+    Pabij = contract("ac, bcji->abij", f[v, v], t)
+    Pabij -= contract("ki, abkj->abij", f[o, o], t)
+    rhs_T2 += Pabij
+    rhs_T2 += Pabij.swapaxes(0, 1).swapaxes(2, 3)
+
+    return rhs_T2
+
+
 def compute_l_2_amplitudes(f, u, t2, l2, o, v, np, out=None):
 
     tt = 2 * t2 - t2.transpose(0, 1, 3, 2)
