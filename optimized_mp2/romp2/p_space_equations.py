@@ -2,30 +2,12 @@ from opt_einsum import contract
 import time
 
 
-def compute_eta(h, u, rho_qp, rho_qspr, o, v, np):
-    eta = np.zeros(h.shape, dtype=np.complex128)
-    A_ibaj = compute_A_ibaj(rho_qp, o, v, np=np)
-
-    # R_ia = compute_R_ia(h, u, rho_qp, rho_qspr, o, v, np=np)
-    R_ia = -compute_R_tilde_ai(h, u, rho_qp, rho_qspr, o, v, np=np).conj().T
-
-    A_iajb = A_ibaj.transpose(0, 2, 3, 1)
-    eta_jb = -1j * np.linalg.tensorsolve(A_iajb, R_ia)
-
-    eta[o, v] += eta_jb
-    eta[v, o] -= eta_jb.conj().T
-
-    return eta
-
-
-def compute_eta_MO_driven(f, u, rho_qp, l2, t2, o, v, np):
+def compute_eta(f, u, rho_qp, t2, o, v, np):
 
     eta = np.zeros(f.shape, dtype=np.complex128)
     A_ibaj = compute_A_ibaj(rho_qp, o, v, np=np)
 
-    R_ia = (
-        -compute_R_tilde_ai_MO_driven(f, u, rho_qp, l2, t2, o, v, np).conj().T
-    )
+    R_ia = -compute_R_tilde_ai(f, u, rho_qp, t2, o, v, np).conj().T
 
     A_iajb = A_ibaj.transpose(0, 2, 3, 1)
     eta_jb = -1j * np.linalg.tensorsolve(A_iajb, R_ia)
@@ -46,47 +28,7 @@ def compute_A_ibaj(rho_qp, o, v, np):
     return A_ibaj
 
 
-def compute_R_tilde_ai(h, u, rho_qp, rho_qspr, o, v, np):
-
-    # tic = time.time()
-    R_tilde_ai = np.dot(rho_qp[v, v], h[v, o])
-    R_tilde_ai -= np.dot(h[v, o], rho_qp[o, o])
-    # toc = time.time()
-    # print(f"One body contractions: {toc-tic}")
-
-    # ic = time.time()
-    R_tilde_ai += contract(
-        "abkl, klib->ai", rho_qspr[v, v, o, o], u[o, o, o, v]
-    )
-    R_tilde_ai += 2 * contract("ab, bkik->ai", rho_qp[v, v], u[v, o, o, o])
-    R_tilde_ai -= contract("ab, kbik->ai", rho_qp[v, v], u[o, v, o, o])
-    # toc = time.time()
-    # print(f"u_ooov contractions: {toc-tic}")
-
-    # tic = time.time()
-    R_tilde_ai -= contract(
-        "bcij, ajbc->ai", rho_qspr[v, v, o, o], u[v, o, v, v]
-    )
-    # toc = time.time()
-    # print(f"u_vvvo contraction 1: {toc-tic}")
-
-    # tic = time.time()
-    R_tilde_ai += contract("bc, acbi->ai", rho_qp[v, v], u[v, v, v, o])
-    R_tilde_ai -= 2 * contract("bc, acib->ai", rho_qp[v, v], u[v, v, o, v])
-    # toc = time.time()
-    # print(f"u_vvvo contractions 2: {toc-tic}")
-
-    # tic = time.time()
-    R_tilde_ai -= contract(
-        "klij, ajkl->ai", rho_qspr[o, o, o, o], u[v, o, o, o]
-    )
-    # toc = time.time()
-    # print(f"gamma_oooo contraction: {toc-tic}")
-
-    return R_tilde_ai
-
-
-def compute_R_tilde_ai_MO_driven(f, u, rho_qp, l2, t2, o, v, np):
+def compute_R_tilde_ai(f, u, rho_qp, t2, o, v, np):
 
     tt = 2 * (2 * t2 - t2.transpose(0, 1, 3, 2))
 

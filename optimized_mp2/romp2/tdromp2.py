@@ -11,7 +11,6 @@ from optimized_mp2.romp2.density_matrices import (
 
 from optimized_mp2.romp2.p_space_equations import (
     compute_eta,
-    compute_eta_MO_driven,
 )
 
 from optimized_mp2.omp2_helper import OACCVector
@@ -37,6 +36,7 @@ class TDROMP2:
     """
 
     def __init__(self, system, C=None, C_tilde=None):
+
         self.np = system.np
         self.truncation = "CCD"
         self.system = system
@@ -203,26 +203,11 @@ class TDROMP2:
 
         return compute_orbital_adaptive_overlap(t2a, l2a, t2b, l2b, np=self.np)
 
-    def compute_p_space_equations(self):
-
+    def compute_p_space_equations(self, t2):
         eta = compute_eta(
-            self.h_prime,
-            self.u_prime,
-            self.rho_qp,
-            self.rho_qspr,
-            self.o_prime,
-            self.v_prime,
-            np=self.np,
-        )
-
-        return eta
-
-    def compute_p_space_equations_MO_driven(self, l2, t2):
-        eta = compute_eta_MO_driven(
             self.f_prime,
             self.u_prime,
             self.rho_qp,
-            l2,
             t2,
             self.o,
             self.v,
@@ -303,7 +288,7 @@ class TDROMP2:
         # self.rho_qspr = self.two_body_density_matrix(t_old, l_old)
 
         # Solve P-space equations for eta
-        eta = self.compute_p_space_equations_MO_driven(*l_old, *t_old)
+        eta = self.compute_p_space_equations(*t_old)
 
         C_new = np.dot(C, eta)
         C_tilde_new = -np.dot(eta, C_tilde)

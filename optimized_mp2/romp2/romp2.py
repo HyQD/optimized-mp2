@@ -21,7 +21,6 @@ from optimized_mp2.omp2_helper import OACCVector, AmplitudeContainer
 
 from optimized_mp2.romp2.p_space_equations import (
     compute_R_tilde_ai,
-    compute_R_tilde_ai_MO_driven,
     compute_R_tilde_ai_MO_driven_v2,
 )
 
@@ -46,25 +45,53 @@ class ROMP2:
 
     """
 
-    def __init__(self, system, verbose=False, **kwargs):
+    def __init__(self, system, verbose=False, MO_driven=False, **kwargs):
 
         self.np = system.np
         self.system = system
         self.verbose = verbose
+        self.MO_driven = MO_driven
 
         self.n, self.m, self.l = system.n, system.m, system.l
-
-        self.h = self.system.h
-        self.u = self.system.u
-        self.f = self.system.construct_fock_matrix(self.h, self.u)
-
         self.o, self.v = self.system.o, self.system.v
 
         np = self.np
-        n, m, l = self.n, self.m, self.l
+        n, m, l, o, v = self.n, self.m, self.l, self.o, self.v
 
-        self.rhs_t_2 = np.zeros((m, m, n, n), dtype=self.u.dtype)
-        self.rhs_l_2 = np.zeros((n, n, m, m), dtype=self.u.dtype)
+        self.h = self.system.h
+        self.kappa = np.zeros((l, l), dtype=self.h.dtype)
+
+        self.C = self.C = expm(self.kappa - self.kappa.T)
+        self.C_tilde = self.C.T.conj()
+
+        if not self.MO_driven:
+            self.u = self.system.u
+            self.f = self.system.construct_fock_matrix(self.h, self.u)
+
+        else:
+            self.f = contract(
+                "pa,ab,bq->pq", self.C_tilde, self.system.h, self.C
+            )
+
+            self.f += 2 * contract(
+                "pa,jb,abgd,gq,dj->pq",
+                self.C_tilde,
+                self.C_tilde[o, :],
+                self.system.u,
+                self.C,
+                self.C[:, o],
+            )
+            self.f -= contract(
+                "pa,jb,abgd,gj,dq->pq",
+                self.C_tilde,
+                self.C_tilde[o, :],
+                self.system.u,
+                self.C[:, o],
+                self.C,
+            )
+
+        self.rhs_t_2 = np.zeros((m, m, n, n), dtype=self.h.dtype)
+        self.rhs_l_2 = np.zeros((n, n, m, m), dtype=self.h.dtype)
 
         self.t_2 = np.zeros_like(self.rhs_t_2)
         self.l_2 = np.zeros_like(self.rhs_l_2)
@@ -77,24 +104,15 @@ class ROMP2:
 
         self.compute_initial_guess()
 
-        self.kappa = np.zeros((l, l), dtype=self.t_2.dtype)
-
-        self.kappa_up = np.zeros((m, n), dtype=self.t_2.dtype)
-
     def compute_initial_guess(self):
         np = self.np
         o, v = self.o, self.v
 
-        np.copyto(self.rhs_t_2, self.u[v, v, o, o])
+        np.copyto(self.rhs_t_2, self.system.u[v, v, o, o])
         np.divide(self.rhs_t_2, self.d_t_2, out=self.t_2)
 
-        np.copyto(
-            self.rhs_l_2,
-            compute_l_2_amplitudes(
-                self.f, self.u, self.rhs_t_2, self.l_2, self.o, self.v, np
-            ),
-        )
-        np.divide(self.rhs_l_2, self.d_l_2, out=self.l_2)
+        t2_tt = 2 * self.t_2 - self.t_2.transpose(0, 1, 3, 2)
+        self.l_2 = 2 * t2_tt.conj().transpose(2, 3, 0, 1)
 
     def get_amplitudes(self, get_t_0=False):
         """Getter for amplitudes, overwrites CC.get_amplitudes to also include
@@ -144,7 +162,12 @@ class ROMP2:
         rho_qspr = self.compute_two_body_density_matrix()
         toc = time.time()
 
-        u = self.u
+        if not self.MO_driven:
+            u = self.u
+        else:
+            u = self.system.transform_two_body_elements(
+                self.system.u, self.C, self.C_tilde
+            )
         o, v = self.o, self.v
 
         term_klij = contract(
@@ -255,60 +278,36 @@ class ROMP2:
         """
         np = self.np
 
-        self.C = expm(self.kappa - self.kappa.T)
-        self.C_tilde = self.C.T
-
         v, o = self.v, self.o
 
         for i in range(max_iterations):
 
-            self.f = contract(
-                "pa,ab,bq->pq", self.C_tilde, self.system.h, self.C
-            )
-
-            self.f += 2 * contract(
-                "pa,jb,abgd,gq,dj->pq",
-                self.C_tilde,
-                self.C_tilde[o, :],
-                self.system.u,
-                self.C,
-                self.C[:, o],
-            )
-            self.f -= contract(
-                "pa,jb,abgd,gj,dq->pq",
-                self.C_tilde,
-                self.C_tilde[o, :],
-                self.system.u,
-                self.C[:, o],
-                self.C,
-            )
+            self.f = self.transform_f(self.system.h, self.C, self.C_tilde, o, v)
 
             # self.f = self.system.construct_fock_matrix(self.h, self.u)
 
             self.d_t_1 = construct_d_t_1_matrix(self.f, self.o, self.v, np)
             self.d_t_2 = construct_d_t_2_matrix(self.f, self.o, self.v, np)
 
-            # rhs_t2 = compute_t_2_amplitudes(
-            #    self.f, self.u, self.t_2, self.o, self.v, np
-            # )
-
-            rhs_t2 = compute_t_2_amplitudes_v2(
-                self.f,
-                self.system.u,
-                self.t_2,
-                self.C,
-                self.C_tilde,
-                self.o,
-                self.v,
-                np,
-            )
-
-            rhs_l2 = compute_l_2_amplitudes(
-                self.f, self.u, rhs_t2, self.l_2, self.o, self.v, np
-            )
+            if not self.MO_driven:
+                rhs_t2 = compute_t_2_amplitudes(
+                    self.f, self.u, self.t_2, self.o, self.v, np
+                )
+            else:
+                rhs_t2 = compute_t_2_amplitudes_v2(
+                    self.f,
+                    self.system.u,
+                    self.t_2,
+                    self.C,
+                    self.C_tilde,
+                    self.o,
+                    self.v,
+                    np,
+                )
 
             self.t_2 += rhs_t2 / self.d_t_2
-            self.l_2 += rhs_l2 / self.d_t_2.transpose(2, 3, 0, 1)
+            t2_tt = 2 * self.t_2 - self.t_2.transpose(0, 1, 3, 2)
+            self.l_2 = 2 * t2_tt.conj().transpose(2, 3, 0, 1)
 
             rho_qp = self.compute_one_body_density_matrix()
 
@@ -316,13 +315,14 @@ class ROMP2:
             # This part of the code is common to most (if not all)
             # orbital-optimized methods.
 
-            # w_ai = compute_R_tilde_ai_MO_driven(
-            #    self.f, self.u, rho_qp, self.l_2, self.t_2, o, v, np
-            # )
-
-            w_ai = compute_R_tilde_ai_MO_driven_v2(
-                self.f, self.system.u, rho_qp, self.t_2, self.C, o, v, np
-            )
+            if not self.MO_driven:
+                w_ai = compute_R_tilde_ai(
+                    self.f, self.u, rho_qp, self.t_2, o, v, np
+                )
+            else:
+                w_ai = compute_R_tilde_ai_MO_driven_v2(
+                    self.f, self.system.u, rho_qp, self.t_2, self.C, o, v, np
+                )
 
             residual_w_ai = np.linalg.norm(w_ai)
 
@@ -334,7 +334,10 @@ class ROMP2:
             self.h = self.system.transform_one_body_elements(
                 self.system.h, self.C, self.C_tilde
             )
-
+            if not self.MO_driven:
+                self.u = self.system.transform_two_body_elements(
+                    self.system.u, self.C, self.C_tilde
+                )
             ############################################################
 
             if self.verbose:
@@ -343,10 +346,6 @@ class ROMP2:
 
             if np.abs(residual_w_ai) < tol:
                 break
-
-        self.u = self.system.transform_two_body_elements(
-            self.system.u, self.C, self.C_tilde
-        )
 
         tic = time.time()
         energy = self.compute_energy()
@@ -376,3 +375,25 @@ class ROMP2:
         rho_qp = self.compute_one_body_density_matrix()
 
         return self.np.trace(self.np.dot(rho_qp, self.C_tilde @ mat @ self.C))
+
+    def transform_f(self, h, C, C_tilde, o, v):
+        f = contract("pa,ab,bq->pq", C_tilde, h, C)
+
+        f += 2 * contract(
+            "pA,jB,ABGD,Gq,Dj->pq",
+            C_tilde,
+            C_tilde[o, :],
+            self.system.u,
+            C,
+            C[:, o],
+        )
+        f -= contract(
+            "pA,jB,ABGD,Gj,Dq->pq",
+            C_tilde,
+            C_tilde[o, :],
+            self.system.u,
+            C[:, o],
+            C,
+        )
+
+        return f
