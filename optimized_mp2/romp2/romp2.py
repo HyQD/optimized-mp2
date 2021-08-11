@@ -21,7 +21,6 @@ from optimized_mp2.omp2_helper import OACCVector, AmplitudeContainer
 
 from optimized_mp2.romp2.p_space_equations import (
     compute_R_tilde_ai,
-    compute_R_tilde_ai_MO_driven_v2,
 )
 
 from opt_einsum import contract
@@ -45,12 +44,11 @@ class ROMP2:
 
     """
 
-    def __init__(self, system, verbose=False, MO_driven=False, **kwargs):
+    def __init__(self, system, verbose=False, **kwargs):
 
         self.np = system.np
         self.system = system
         self.verbose = verbose
-        self.MO_driven = MO_driven
 
         self.n, self.m, self.l = system.n, system.m, system.l
         self.o, self.v = self.system.o, self.system.v
@@ -64,31 +62,8 @@ class ROMP2:
         self.C = self.C = expm(self.kappa - self.kappa.T)
         self.C_tilde = self.C.T.conj()
 
-        if not self.MO_driven:
-            self.u = self.system.u
-            self.f = self.system.construct_fock_matrix(self.h, self.u)
-
-        else:
-            self.f = contract(
-                "pa,ab,bq->pq", self.C_tilde, self.system.h, self.C
-            )
-
-            self.f += 2 * contract(
-                "pa,jb,abgd,gq,dj->pq",
-                self.C_tilde,
-                self.C_tilde[o, :],
-                self.system.u,
-                self.C,
-                self.C[:, o],
-            )
-            self.f -= contract(
-                "pa,jb,abgd,gj,dq->pq",
-                self.C_tilde,
-                self.C_tilde[o, :],
-                self.system.u,
-                self.C[:, o],
-                self.C,
-            )
+        self.u = self.system.u
+        self.f = self.system.construct_fock_matrix(self.h, self.u)
 
         self.rhs_t_2 = np.zeros((m, m, n, n), dtype=self.h.dtype)
         self.rhs_l_2 = np.zeros((n, n, m, m), dtype=self.h.dtype)
@@ -158,51 +133,34 @@ class ROMP2:
 
     def compute_energy(self):
 
-        rho_qp = self.compute_one_body_density_matrix()
-        rho_qspr = self.compute_two_body_density_matrix()
-        toc = time.time()
-
-        if not self.MO_driven:
-            u = self.u
-        else:
-            u = self.system.transform_two_body_elements(
-                self.system.u, self.C, self.C_tilde
-            )
-        o, v = self.o, self.v
-
-        term_klij = contract(
-            "klij, ijkl->", rho_qspr[o, o, o, o], u[o, o, o, o]
-        )
-        term_abij = contract(
-            "abij, ijab->", rho_qspr[v, v, o, o], u[o, o, v, v]
+        e_ref = self.compute_reference_energy(self.h, self.u, self.o)
+        e_corr = self.compute_Lagrangian(
+            self.f, self.u, self.l_2, self.t_2, self.o, self.v
         )
 
-        # e_tb += contract("ijab, abij->", rho_qspr[o, o, v, v], u[v, v, o, o])
+        return e_ref + e_corr
 
-        term_iajb = contract(
-            "iajb, jbia->", rho_qspr[o, v, o, v], u[o, v, o, v]
-        )
-        # e_tb += contract("aibj, bjai->", rho_qspr[v, o, v, o], u[v, o, v, o])
-
-        term_aijb = contract(
-            "aijb, jbai->", rho_qspr[v, o, o, v], u[o, v, v, o]
-        )
-        # e_tb += contract("iabj, bjia->", rho_qspr[o, v, v, o], u[v, o, o, v])
-
-        return (
-            contract("pq,qp->", self.h, rho_qp)
-            + 0.5
-            * (
-                term_klij
-                + term_abij
-                + term_abij.conj()
-                + term_iajb
-                + term_iajb.conj()
-                + term_aijb
-                + term_aijb.conj()
-            )
+    def compute_reference_energy(self, h, u, o):
+        e_ref = (
+            2 * self.np.trace(h[o, o])
+            + 2 * self.np.trace(self.np.trace(u[o, o, o, o], axis1=1, axis2=3))
+            - self.np.trace(self.np.trace(u[o, o, o, o], axis1=1, axis2=2))
             + self.system.nuclear_repulsion_energy
         )
+
+        return e_ref
+
+    def compute_Lagrangian(self, f, u, l2, t2, o, v):
+
+        lag = 2 * contract("abij, ijab->", t2, u[o, o, v, v])
+        lag -= contract("abij, ijba->", t2, u[o, o, v, v])
+        lag += 0.5 * contract("ijab, abij->", l2, u[v, v, o, o])
+        lag += contract("ab, ijac, bcij->", f[v, v], l2, t2)
+
+        # f^i_j * (gamma_corr)^j_i
+        lag -= contract("ij, jkab, abik->", f[o, o], l2, t2)
+
+        return lag
 
     def compute_t_amplitudes(self):
         np = self.np
@@ -280,30 +238,19 @@ class ROMP2:
 
         v, o = self.v, self.o
 
+        tic = time.time()
         for i in range(max_iterations):
 
-            self.f = self.transform_f(self.system.h, self.C, self.C_tilde, o, v)
+            # self.f = self.transform_f(self.system.h, self.C, self.C_tilde, o, v)
 
-            # self.f = self.system.construct_fock_matrix(self.h, self.u)
+            self.f = self.system.construct_fock_matrix(self.h, self.u)
 
             self.d_t_1 = construct_d_t_1_matrix(self.f, self.o, self.v, np)
             self.d_t_2 = construct_d_t_2_matrix(self.f, self.o, self.v, np)
 
-            if not self.MO_driven:
-                rhs_t2 = compute_t_2_amplitudes(
-                    self.f, self.u, self.t_2, self.o, self.v, np
-                )
-            else:
-                rhs_t2 = compute_t_2_amplitudes_v2(
-                    self.f,
-                    self.system.u,
-                    self.t_2,
-                    self.C,
-                    self.C_tilde,
-                    self.o,
-                    self.v,
-                    np,
-                )
+            rhs_t2 = compute_t_2_amplitudes(
+                self.f, self.u, self.t_2, self.o, self.v, np
+            )
 
             self.t_2 += rhs_t2 / self.d_t_2
             t2_tt = 2 * self.t_2 - self.t_2.transpose(0, 1, 3, 2)
@@ -315,14 +262,9 @@ class ROMP2:
             # This part of the code is common to most (if not all)
             # orbital-optimized methods.
 
-            if not self.MO_driven:
-                w_ai = compute_R_tilde_ai(
-                    self.f, self.u, rho_qp, self.t_2, o, v, np
-                )
-            else:
-                w_ai = compute_R_tilde_ai_MO_driven_v2(
-                    self.f, self.system.u, rho_qp, self.t_2, self.C, o, v, np
-                )
+            w_ai = compute_R_tilde_ai(
+                self.f, self.u, rho_qp, self.t_2, o, v, np
+            )
 
             residual_w_ai = np.linalg.norm(w_ai)
 
@@ -334,10 +276,11 @@ class ROMP2:
             self.h = self.system.transform_one_body_elements(
                 self.system.h, self.C, self.C_tilde
             )
-            if not self.MO_driven:
-                self.u = self.system.transform_two_body_elements(
-                    self.system.u, self.C, self.C_tilde
-                )
+            self.u = self.system.transform_two_body_elements(
+                self.system.u, self.C, self.C_tilde
+            )
+
+            energy = self.compute_energy()
             ############################################################
 
             if self.verbose:
@@ -347,14 +290,15 @@ class ROMP2:
             if np.abs(residual_w_ai) < tol:
                 break
 
-        tic = time.time()
-        energy = self.compute_energy()
         toc = time.time()
-        print(f"Compute energy: {toc-tic}")
-        print(f"Energy: {energy}")
+        if self.verbose:
+            print(f"Time computing tau and C: {toc-tic}")
 
-        # self.C = C
-        # self.C_tilde = C.T.conj()
+        if self.verbose:
+            print(
+                f"Final {self.__class__.__name__} energy: "
+                + f"{self.compute_energy()}"
+            )
 
         if change_system_basis:
             if self.verbose:
@@ -363,12 +307,6 @@ class ROMP2:
             self.system.change_basis(C=self.C, C_tilde=self.C_tilde)
             self.C = np.eye(self.system.l)
             self.C_tilde = np.eye(self.system.l)
-
-        if self.verbose:
-            print(
-                f"Final {self.__class__.__name__} energy: "
-                + f"{self.compute_energy()}"
-            )
 
     def compute_one_body_expectation_value(self, mat):
 
