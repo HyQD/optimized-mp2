@@ -96,17 +96,18 @@ for i in tqdm.tqdm(range(num_steps - 1)):
 td_energies_omp2 = np.load("dat/tdomp2_energy.npy")
 dip_z_omp2 = np.load("dat/tdomp2_dip_z.npy")
 
-# np.save("tdromp2_energy", td_energies)
-# np.save("tdromp2_dip_z", dip_z)
-
 from matplotlib import pyplot as plt
-
 plt.figure()
+plt.subplot(211)
+plt.plot(time_points[51:], td_energies[51:].real, label='romp2')
+plt.subplot(212)
 plt.plot(time_points, td_energies.real)
-plt.plot(time_points, td_energies_omp2.real)
+plt.plot(time_points, td_energies_omp2.real, 'o')
+
 
 plt.figure()
-plt.plot(time_points, dip_z.real)
-plt.plot(time_points, dip_z_omp2.real)
+plt.plot(time_points, dip_z.real, label='romp2')
+plt.plot(time_points, dip_z_omp2.real, 'o', label='omp2')
+plt.legend()
 
 plt.show()
