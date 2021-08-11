@@ -1,7 +1,6 @@
 from optimized_mp2.romp2.rhs_t import (
     compute_t_2_amplitudes,
     compute_l_2_amplitudes,
-    compute_t_2_amplitudes_v2,
 )
 
 
@@ -12,7 +11,6 @@ from optimized_mp2.romp2.density_matrices import (
 
 from optimized_mp2.romp2.p_space_equations import (
     compute_eta,
-    compute_eta_MO_driven,
 )
 
 from optimized_mp2.omp2_helper import OACCVector
@@ -37,12 +35,11 @@ class TDROMP2:
 
     """
 
-    def __init__(self, system, MO_driven=False, C=None, C_tilde=None):
+    def __init__(self, system, C=None, C_tilde=None):
 
         self.np = system.np
         self.truncation = "CCD"
         self.system = system
-        self.MO_driven = MO_driven
 
         # these lines is copy paste from super().__init__, and would be nice to
         # remove.
@@ -60,12 +57,8 @@ class TDROMP2:
 
         assert C.shape == C_tilde.T.shape
 
-        if not self.MO_driven:
-            self.u = self.system.u
-            self.f = self.system.construct_fock_matrix(self.h, self.u)
-
-        else:
-            self.f = self.transform_f(self.system.h, C, C_tilde, o, v)
+        self.u = self.system.u
+        self.f = self.system.construct_fock_matrix(self.h, self.u)
 
         n_prime = self.system.n
         l_prime = C.shape[1]
@@ -113,9 +106,6 @@ class TDROMP2:
     def rhs_t_amplitudes(self):
         yield compute_t_2_amplitudes
 
-    def rhs_t_amplitudes_MO_driven(self):
-        yield compute_t_2_amplitudes_v2
-
     def rhs_l_amplitudes(self):
         yield compute_l_2_amplitudes
 
@@ -128,55 +118,26 @@ class TDROMP2:
 
     def compute_energy(self, current_time, y):
 
-        t_0, t_2, l_2, C, C_tilde = self._amp_template.from_array(y).unpack()
+        t_0, t2, l2, C, C_tilde = self._amp_template.from_array(y).unpack()
 
         self.update_hamiltonian(current_time=current_time, y=y)
-
-        rho_qp = self.compute_one_body_density_matrix(current_time, y)
-        rho_qspr = self.compute_two_body_density_matrix(current_time, y)
-
-        if not self.MO_driven:
-            u = self.u_prime
-        else:
-            u = self.system.transform_two_body_elements(
-                self.system.u, C, C_tilde
-            )
-
+        h, f, u = self.h_prime, self.f_prime, self.u_prime
         o, v = self.o, self.v
 
-        term_klij = contract(
-            "klij, ijkl->", rho_qspr[o, o, o, o], u[o, o, o, o]
-        )
-        term_abij = contract(
-            "abij, ijab->", rho_qspr[v, v, o, o], u[o, o, v, v]
-        )
-
-        # e_tb += contract("ijab, abij->", rho_qspr[o, o, v, v], u[v, v, o, o])
-
-        term_iajb = contract(
-            "iajb, jbia->", rho_qspr[o, v, o, v], u[o, v, o, v]
-        )
-        # e_tb += contract("aibj, bjai->", rho_qspr[v, o, v, o], u[v, o, v, o])
-
-        term_aijb = contract(
-            "aijb, jbai->", rho_qspr[v, o, o, v], u[o, v, v, o]
-        )
-        # e_tb += contract("iabj, bjia->", rho_qspr[o, v, v, o], u[v, o, o, v])
-
-        return (
-            contract("pq,qp->", self.h_prime, rho_qp)
-            + 0.5
-            * (
-                term_klij
-                + term_abij
-                + term_abij.conj()
-                + term_iajb
-                + term_iajb.conj()
-                + term_aijb
-                + term_aijb.conj()
-            )
+        e_ref = (
+            2 * self.np.trace(h[o, o])
+            + 2 * self.np.trace(self.np.trace(u[o, o, o, o], axis1=1, axis2=3))
+            - self.np.trace(self.np.trace(u[o, o, o, o], axis1=1, axis2=2))
             + self.system.nuclear_repulsion_energy
         )
+
+        lag = 2 * contract("abij, ijab->", t2, u[o, o, v, v])
+        lag -= contract("abij, ijba->", t2, u[o, o, v, v])
+        lag += 0.5 * contract("ijab, abij->", l2, u[v, v, o, o])
+        lag += contract("ab, ijac, bcij->", f[v, v], l2, t2)
+        lag -= contract("ij, jkab, abik->", f[o, o], l2, t2)
+
+        return e_ref + lag
 
     def one_body_density_matrix(self, t, l):
         t_2 = t[0]
@@ -275,15 +236,12 @@ class TDROMP2:
             self.h, C, C_tilde
         )
 
-        if not self.MO_driven:
-            self.u_prime = self.system.transform_two_body_elements(
-                self.system.u, C, C_tilde
-            )
-            self.f_prime = self.system.construct_fock_matrix(
-                self.h_prime, self.u_prime
-            )
-        else:
-            self.f_prime = self.transform_f(self.h, C, C_tilde, self.o, self.v)
+        self.u_prime = self.system.transform_two_body_elements(
+            self.system.u, C, C_tilde
+        )
+        self.f_prime = self.system.construct_fock_matrix(
+            self.h_prime, self.u_prime
+        )
 
     def __call__(self, current_time, prev_amp):
 
@@ -300,34 +258,14 @@ class TDROMP2:
 
         # OATDCC procedure:
         # Do amplitude step
-        if not self.MO_driven:
-            t_new = [
-                -1j
-                * rhs_t_func(
-                    self.f_prime,
-                    self.u_prime,
-                    *t_old,
-                    o_prime,
-                    v_prime,
-                    np=self.np
-                )
-                for rhs_t_func in self.rhs_t_amplitudes()
-            ]
-        else:
-            t_new = [
-                -1j
-                * rhs_t_func(
-                    self.f_prime,
-                    self.system.u,
-                    *t_old,
-                    C,
-                    C_tilde,
-                    o_prime,
-                    v_prime,
-                    np=self.np
-                )
-                for rhs_t_func in self.rhs_t_amplitudes_MO_driven()
-            ]
+
+        t_new = [
+            -1j
+            * rhs_t_func(
+                self.f_prime, self.u_prime, *t_old, o_prime, v_prime, np=self.np
+            )
+            for rhs_t_func in self.rhs_t_amplitudes()
+        ]
 
         # Compute derivative of phase
         t_0_new = self.np.array([0 + 0j])
@@ -341,10 +279,8 @@ class TDROMP2:
         self.rho_qp = self.one_body_density_matrix(t_old, l_old)
 
         # Solve P-space equations for eta
-        if not self.MO_driven:
-            eta = self.compute_p_space_equations(*t_old)
-        else:
-            eta = self.compute_p_space_equations_MO_driven(*t_old, C)
+
+        eta = self.compute_p_space_equations(*t_old)
 
         C_new = np.dot(C, eta)
         C_tilde_new = -np.dot(eta, C_tilde)
@@ -362,25 +298,3 @@ class TDROMP2:
         t, l, C, C_tilde = self._amp_template.from_array(y)
 
         return self.np.trace(self.np.dot(rho_qp, C_tilde @ mat @ C))
-
-    def transform_f(self, h, C, C_tilde, o, v):
-        f = contract("pA,AB,Bq->pq", C_tilde, h, C)
-
-        f += 2 * contract(
-            "pA,jB,ABGD,Gq,Dj->pq",
-            C_tilde,
-            C_tilde[o, :],
-            self.system.u,
-            C,
-            C[:, o],
-        )
-        f -= contract(
-            "pA,jB,ABGD,Gj,Dq->pq",
-            C_tilde,
-            C_tilde[o, :],
-            self.system.u,
-            C[:, o],
-            C,
-        )
-
-        return f
