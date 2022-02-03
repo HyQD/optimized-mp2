@@ -80,11 +80,14 @@ class OMP2:
         self.l_2_mixer = None
         self.t_2_mixer = None
 
-        self.compute_initial_guess()
+        # self.compute_initial_guess()
 
         self.kappa = np.zeros((l, l), dtype=self.t_2.dtype)
 
         self.kappa_up = np.zeros((m, n), dtype=self.t_2.dtype)
+
+        self.C = expm(self.kappa - self.kappa.T)
+        self.C_tilde = self.C.T
 
     def compute_initial_guess(self):
         np = self.np
@@ -364,7 +367,7 @@ class OMP2:
                 )
             else:
                 w_ai = compute_R_tilde_ai(
-                    self.h, self.u, rho_qp, rho_qspr, o, v, np
+                    self.f, self.u, rho_qp, self.t_2, o, v, np
                 )
             toc_1 = time.time()
             print(f"w_ai: {toc_1-tic_1}")
@@ -373,8 +376,8 @@ class OMP2:
 
             self.kappa[self.v, self.o] -= w_ai / self.d_t_1
 
-            self.C = expm(self.kappa - self.kappa.T)
-            self.C_tilde = self.C.T
+            self.C = expm(self.kappa - self.kappa.T.conj())
+            self.C_tilde = self.C.T.conj()
 
             self.h = self.system.transform_one_body_elements(
                 self.system.h, self.C, self.C_tilde

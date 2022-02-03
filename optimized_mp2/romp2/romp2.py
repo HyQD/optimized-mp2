@@ -77,7 +77,7 @@ class ROMP2:
         self.l_2_mixer = None
         self.t_2_mixer = None
 
-        self.compute_initial_guess()
+        # self.compute_initial_guess()
 
     def compute_initial_guess(self):
         np = self.np
@@ -270,8 +270,8 @@ class ROMP2:
 
             self.kappa[self.v, self.o] -= 0.5 * w_ai / self.d_t_1
 
-            self.C = expm(self.kappa - self.kappa.T)
-            self.C_tilde = self.C.T
+            self.C = expm(self.kappa - self.kappa.T.conj())
+            self.C_tilde = self.C.T.conj()
 
             self.h = self.system.transform_one_body_elements(
                 self.system.h, self.C, self.C_tilde
