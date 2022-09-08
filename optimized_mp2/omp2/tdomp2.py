@@ -276,14 +276,10 @@ class TDOMP2:
         ).asarray()
 
     def compute_one_body_expectation_value(
-        self, current_time, y, mat, make_hermitian=False
+        self, current_time, y, mat, make_hermitian=True
     ):
 
         rho_qp = self.compute_one_body_density_matrix(current_time, y)
-
-        if make_hermitian:
-            rho_qp = 0.5 * (rho_qp.conj().T + rho_qp)
-
         t, l, C, C_tilde = self._amp_template.from_array(y)
 
         return self.np.trace(self.np.dot(rho_qp, C_tilde @ mat @ C))
